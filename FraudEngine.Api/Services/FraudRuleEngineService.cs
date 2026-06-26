@@ -39,6 +39,7 @@ public class FraudRuleEngineService : IFraudRuleEngineService
         {
             "GreaterThan" when actualValue is decimal d && decimal.TryParse(ruleValue, out var targetD) => d > targetD,
             "Equals" when actualValue is string s => s.Equals(ruleValue, StringComparison.OrdinalIgnoreCase),
+            "LessThan" when actualValue is decimal d && decimal.TryParse(ruleValue, out var targetL) => d < targetL,
             _ => false
         };
     }
