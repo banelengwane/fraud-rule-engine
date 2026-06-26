@@ -1,41 +1,64 @@
+using System.Text.Json;
+using FraudEngine.Api.Models;
+using FraudEngine.Api.Services;
+using Microsoft.AspNetCore.Mvc;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddSingleton<IFraudRuleEngineService, FraudRuleEngineService>();
+builder.Services.AddSingleton<IFlaggedTransactionStore, FlaggedTransactionStore>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+// mock standard dynamic json config rules
+const string embeddedRulesConfig = """
+[
+    {
+        "RuleName": "MaxAmountLimit", 
+        "Property": "Amount", 
+        "Operator":"GreaterThan", 
+        "Value": "50000"
+    },
+    {
+        "RuleName": "CryptoSanctionZone", 
+        "Property": "MerchantType", 
+        "Operator":"Equals", 
+        "Value":"CryptoExchange"
+    }
+]
+""";
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
+// endPoint 1: Process incoming transaction events
+app.MapPost("/api/transactions", (
+    [FromBody] Transaction tx, 
+    IFraudRuleEngineService engine,
+    IFlaggedTransactionStore store) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    var activeRules = JsonSerializer.Deserialize<List<FraudRuleConfig>>(embeddedRulesConfig);
+    
+    var assessment = engine.Evaluate(tx, activeRules);
 
-app.MapGet("/weatherforecast", () =>
+    if (assessment.IsFraudulent)
+    {
+        var alert = new FlaggedTransactionAlert(
+            tx.Id,
+            tx.Amount,
+            assessment.TriggeredRules,
+            DateTime.UtcNow
+        );
+        store.Save(alert);
+
+        return Results.Ok(new { status = "FLAGGED", reason = assessment.TriggeredRules });
+
+    }
+
+    return Results.Ok(new {status = "APPROVED" });
+});
+
+// get all flagged incidents for operations review
+app.MapGet("/api/fraud/flagged", (IFlaggedTransactionStore store) =>
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    return Results.Ok(store.GetAll());
+});
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
