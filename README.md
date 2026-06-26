@@ -80,7 +80,8 @@ Rules are defined as flexible JSON payloads:
 2. Retrieved Flagged Transactions : Returns a complete ledger of all transactions flagged as potential fraud for operational review
     - URL: /api/fraud/flagged
     - Method: GET
-    - Expected Response: ```json
+    - Expected Response: 
+    ```json
     [
         {
             "transactionId": "tx-102",
